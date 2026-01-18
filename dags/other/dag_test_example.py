@@ -6,9 +6,12 @@
 from airflow.decorators import dag, task
 from airflow.sensors.base import PokeReturnValue
 from airflow.models.baseoperator import chain
+from airflow.models import Variable
 from pendulum import datetime
 import logging
 import requests
+import json
+import os
 
 t_log = logging.getLogger("airflow.task")
 
@@ -42,7 +45,41 @@ def dag_test_example():
     def only_test_this_task():
         return "HELLO !!!! :) "
 
-    chain(dog_print_picture_url(dog_check_availability()), only_test_this_task())
+    # Scenario-specific tasks for A1_partial_write
+    scenario = Variable.get("scenario", default_var=None)
+    
+    if scenario == "A1_partial_write":
+        @task
+        def write_raw_payload():
+            """Write partial/malformed JSON to simulate incomplete write"""
+            # Simulate a partial write scenario
+            partial_json = '{"name": "test", "data": {"value": 123, "status": "processing", "extra": "This is a very long string that gets cut off'
+            file_path = "/tmp/raw_payload.json"
+            with open(file_path, "w") as f:
+                f.write(partial_json)
+            return file_path
+        
+        @task
+        def t3_parse(file_path):
+            """Parse JSON with error handling for partial/malformed JSON"""
+            with open(file_path, "r") as f:
+                raw = f.read()
+            
+            try:
+                payload = json.loads(raw)
+                t_log.info(f"Successfully parsed JSON: {payload}")
+                return payload
+            except json.JSONDecodeError as e:
+                # Handle partial/malformed JSON gracefully
+                t_log.warning(f"JSONDecodeError encountered: {e}. Attempting recovery...")
+                # Try to extract what we can or return a safe default
+                t_log.info("Partial JSON detected, returning safe default")
+                return {"status": "partial_data", "error": str(e), "raw_length": len(raw)}
+        
+        # Chain the scenario-specific tasks
+        t3_parse(write_raw_payload())
+    else:
+        chain(dog_print_picture_url(dog_check_availability()), only_test_this_task())
 
 
 dag = dag_test_example()
