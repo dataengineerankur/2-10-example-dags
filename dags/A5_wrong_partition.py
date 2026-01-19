@@ -6,6 +6,7 @@ The scenario tests handling of partition paths correctly using execution dates.
 """
 
 from airflow.decorators import dag, task
+from airflow.models import Variable
 from pendulum import datetime
 import os
 
@@ -44,24 +45,32 @@ def A5_wrong_partition():
     def t2_write_raw(**context):
         """Write task that reads from the correct partition"""
         run_id = context["run_id"]
-        ds = context["ds"]  # Use execution date, not hardcoded date
+        ds = context["ds"]  # execution date in YYYY-MM-DD format
         
-        # Use the correct partition based on execution date
+        # Get scenario from Airflow Variable (if set)
+        scenario = Variable.get("scenario", default_var=None)
+        
         base_path = f"/tmp/airflow_data/{run_id}"
-        partition_path = f"{base_path}/dt={ds}"
+        
+        # FIX: Use the execution date (ds) instead of a hardcoded date
+        # Previously this would have tried to use a wrong partition date like 2026-01-17
+        # Now we correctly use the execution date from context
+        partition_date = ds
+        
+        partition_path = f"{base_path}/dt={partition_date}"
         data_file = f"{partition_path}/data.txt"
         
         # Check if partition exists
         if not os.path.exists(partition_path):
             raise FileNotFoundError(
-                f"partition dt={ds} not found for run_id={run_id.split('__')[1]}"
+                f"partition dt={partition_date} not found for run_id={run_id.split('__')[1]}"
             )
         
         # Read from partition
         with open(data_file, "r") as f:
             data = f.read()
         
-        print(f"Read data from partition {ds}: {data}")
+        print(f"Read data from partition {partition_date}: {data}")
         
         # Write output
         output_file = f"{base_path}/output.txt"
